@@ -5,7 +5,7 @@ This repository is the region growing algorithm implemented with PyQt5.
 ## UI
 
 <p align="center">
-    <img src="https://github.com/lh9171338/Labelline/blob/main/UI.png"/>
+    <img src="https://github.com/lh9171338/Regiongrow/blob/main/UI.png"/>
 </p> 
 
 ## Requirements
