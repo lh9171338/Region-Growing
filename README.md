@@ -1,4 +1,4 @@
-[<img height="23" src="https://github.com/lh9171338/Outline/blob/master/icon.jpg"/>](https://github.com/lh9171338/Outline) Regiongrow
+[<img height="23" src="https://github.com/lh9171338/Outline/blob/master/icon.jpg"/>](https://github.com/lh9171338/Outline) Region Growing
 ===
 This repository is the region growing algorithm implemented with PyQt5.
 
