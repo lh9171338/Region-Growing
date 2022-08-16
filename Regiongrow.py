@@ -2,7 +2,6 @@ import sys
 import os
 import numpy as np
 import cv2
-import PIL.Image as Image
 from yacs.config import CfgNode
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
@@ -27,9 +26,9 @@ def seedfill(f, seeds, conn=8):
     # 邻域
     if conn == 8:
         dxy = np.array([[-1, -1], [0, -1], [1, -1], [-1, 0],
-                        [1, 0], [-1, 1], [0, 1], [1, 1]], dtype=np.int)
+                        [1, 0], [-1, 1], [0, 1], [1, 1]], dtype=int)
     else:
-        dxy = np.array([[0, -1], [-1, 0], [1, 0], [0, 1]], dtype=np.int)
+        dxy = np.array([[0, -1], [-1, 0], [1, 0], [0, 1]], dtype=int)
 
     # 算法
     g = np.zeros((height, width), dtype=np.uint8)
@@ -38,6 +37,8 @@ def seedfill(f, seeds, conn=8):
 
     stack = []
     for seed in seeds:
+        if g[seed[1], seed[0]]:
+            continue
         stack.append(seed)
         g[seed[1], seed[0]] = 255  # 标记为已处理
         while stack:
@@ -48,7 +49,7 @@ def seedfill(f, seeds, conn=8):
                                   np.logical_and(0 <= npts[:, 1], npts[:, 1] < height))
             npts = npts[mask]
             for npt in npts:
-                if f[npt[1], npt[0]] > 0 and g[npt[1], npt[0]] == 0:
+                if f[npt[1], npt[0]] and not g[npt[1], npt[0]]:
                     stack.append(npt)  # 种子压栈
                     g[npt[1], npt[0]] = 255  # 标记为已处理
 
@@ -265,13 +266,24 @@ class MainWindow(QMainWindow):
         self.menu_Tutorial.setShortcut(cfg.menu_Tutorial_shortcut)
 
         # Update Widget
+        self.reset()
         self.menu_Open.setEnabled(True)
+        self.tool_Open.setEnabled(True)
+
+    def event(self, QEvent):
+        if QEvent.type() == QEvent.StatusTip:
+            if QEvent.tip() == '':
+                QEvent = QStatusTipEvent(self.update_statusbar())
+        return super().event(QEvent)
+
+    def reset(self):
+        self.menu_Open.setEnabled(False)
         self.menu_Save.setEnabled(False)
         self.menu_Run.setEnabled(False)
         self.menu_Undo.setEnabled(False)
         self.menu_Delete.setEnabled(False)
 
-        self.tool_Save.setEnabled(True)
+        self.tool_Open.setEnabled(False)
         self.tool_Save.setEnabled(False)
         self.tool_Run.setEnabled(False)
         self.tool_Undo.setEnabled(False)
@@ -286,24 +298,13 @@ class MainWindow(QMainWindow):
         self.edit_Threshold.setEnabled(False)
 
         self.figure_Image.setEnabled(False)
-        self.figure_Image.setEnabled(False)
 
-        self.update_seedinfo()
-        self.update_statusbar()
-        self.show()
-
-    def event(self, QEvent):
-        if QEvent.type() == QEvent.StatusTip:
-            if QEvent.tip() == '':
-                QEvent = QStatusTipEvent(self.update_statusbar())
-        return super().event(QEvent)
-
-    def update_seedinfo(self):
+    def update_seed_info(self):
         position = self.seed['Position']
         if position is None:
             self.edit_Position.setText('')
         else:
-            self.edit_Position.setText(f'[{position[0]} {position[1]}]')
+            self.edit_Position.setText(f'[{position[0]}, {position[1]}]')
 
         value = self.seed['Value']
         if value is None:
@@ -336,19 +337,46 @@ class MainWindow(QMainWindow):
     def update_figure(self):
         # Plot image
         image = self.image.copy()
-        image = Image.fromarray(image[:, :, ::-1])
-        new_size = (int(round(image.width * self.scale)), int(round(image.height * self.scale)))
-        pixmap = image.toqpixmap()
+        new_size = (int(round(image.shape[1] * self.scale)), int(round(image.shape[0] * self.scale)))
+        image = cv2.resize(image, new_size, cv2.INTER_CUBIC)
+        image = QImage(image.data, image.shape[1], image.shape[0], image.shape[1] * 3, QImage.Format.Format_BGR888)
+        pixmap = QPixmap(image).scaled(new_size[0], new_size[1])
         self.figure_Image.setPixmap(pixmap)
         self.figure_Image.resize(new_size[0], new_size[1])
 
         # Plot label
-        image = self.label.copy()
-        image = Image.fromarray(image)
-        new_size = (int(round(image.width * self.scale)), int(round(image.height * self.scale)))
-        pixmap = image.toqpixmap()
+        label = self.label.copy()
+        label = cv2.resize(label, new_size, cv2.INTER_CUBIC)
+        label = QImage(label.data, label.shape[1], label.shape[0], label.shape[1], QImage.Format.Format_Grayscale8)
+        pixmap = QPixmap(label).scaled(new_size[0], new_size[1])
         self.figure_Label.setPixmap(pixmap)
         self.figure_Label.resize(new_size[0], new_size[1])
+
+    def update_widget(self):
+        has_result = bool(np.any(self.label))
+        has_last_result = self.last_label is not None
+        runable = self.seed['Position'] is not None or self.seed['Value'] is not None
+
+        self.menu_Open.setEnabled(True)
+        self.menu_Save.setEnabled(has_result)
+        self.menu_Run.setEnabled(runable)
+        self.menu_Undo.setEnabled(has_last_result)
+        self.menu_Delete.setEnabled(has_result)
+
+        self.tool_Open.setEnabled(True)
+        self.tool_Save.setEnabled(has_result)
+        self.tool_Run.setEnabled(runable)
+        self.tool_Undo.setEnabled(has_last_result)
+        self.tool_Delete.setEnabled(has_result)
+        self.tool_ZoomIn.setEnabled(self.scale < self.scale_list[-1])
+        self.tool_ZoomOut.setEnabled(self.scale > self.scale_list[0])
+
+        self.button_Value.setEnabled(True)
+
+        self.edit_Value.setEnabled(True)
+        self.edit_Threshold.setEnabled(True)
+
+        self.figure_Image.setEnabled(True)
 
     def Open_Callback(self):
         file = QFileDialog.getOpenFileName(caption='Open image file', filter='Image Files(*.jpg *.png);;All Files(*)')[0]
@@ -377,28 +405,12 @@ class MainWindow(QMainWindow):
             self.status['Zoom'] = self.scale
 
         # Update UI
+        self.update_seed_info()
         self.update_statusbar()
         self.update_figure()
 
         # Update Widget
-        self.menu_Save.setEnabled(False)
-        self.menu_Run.setEnabled(False)
-        self.menu_Undo.setEnabled(False)
-        self.menu_Delete.setEnabled(False)
-
-        self.tool_Save.setEnabled(False)
-        self.tool_Run.setEnabled(False)
-        self.tool_Undo.setEnabled(False)
-        self.tool_Delete.setEnabled(False)
-        self.tool_ZoomIn.setEnabled(self.scale < self.scale_list[-1])
-        self.tool_ZoomOut.setEnabled(self.scale > self.scale_list[0])
-
-        self.button_Value.setEnabled(True)
-
-        self.edit_Value.setEnabled(True)
-        self.edit_Threshold.setEnabled(True)
-
-        self.figure_Image.setEnabled(True)
+        self.update_widget()
 
     def Save_Callback(self):
         directory = os.path.dirname(self.file)
@@ -409,26 +421,7 @@ class MainWindow(QMainWindow):
 
     def Run_Callback(self):
         # Update Widget
-        self.menu_Open.setEnabled(False)
-        self.menu_Save.setEnabled(False)
-        self.menu_Run.setEnabled(False)
-        self.menu_Undo.setEnabled(False)
-        self.menu_Delete.setEnabled(False)
-
-        self.tool_Open.setEnabled(False)
-        self.tool_Save.setEnabled(False)
-        self.tool_Run.setEnabled(False)
-        self.tool_Undo.setEnabled(False)
-        self.tool_Delete.setEnabled(False)
-        self.tool_ZoomIn.setEnabled(False)
-        self.tool_ZoomOut.setEnabled(False)
-
-        self.button_Value.setEnabled(False)
-
-        self.edit_Value.setEnabled(False)
-        self.edit_Threshold.setEnabled(False)
-
-        self.figure_Image.setEnabled(False)
+        self.reset()
 
         # Run
         label = regiongrow(self.image, self.seed['Position'], self.seed['Value'], self.seed['Threshold'], self.conn)
@@ -439,43 +432,17 @@ class MainWindow(QMainWindow):
         self.update_figure()
 
         # Update Widget
-        is_valid = bool(np.any(self.label))
-        self.menu_Open.setEnabled(True)
-        self.menu_Save.setEnabled(is_valid)
-        self.menu_Run.setEnabled(True)
-        self.menu_Undo.setEnabled(is_valid)
-        self.menu_Delete.setEnabled(is_valid)
-
-        self.tool_Open.setEnabled(True)
-        self.tool_Save.setEnabled(is_valid)
-        self.tool_Run.setEnabled(True)
-        self.tool_Undo.setEnabled(is_valid)
-        self.tool_Delete.setEnabled(is_valid)
-        self.tool_ZoomIn.setEnabled(self.scale < self.scale_list[-1])
-        self.tool_ZoomOut.setEnabled(self.scale > self.scale_list[0])
-
-        self.button_Value.setEnabled(True)
-
-        self.edit_Value.setEnabled(True)
-        self.edit_Threshold.setEnabled(True)
-
-        self.figure_Image.setEnabled(True)
+        self.update_widget()
 
     def Undo_Callback(self):
         self.label = self.last_label.copy()
+        self.last_label = None
 
         # Update UI
         self.update_figure()
 
         # Update Widget
-        is_valid = bool(np.any(self.label))
-        self.menu_Save.setEnabled(is_valid)
-        self.menu_Undo.setEnabled(False)
-        self.menu_Delete.setEnabled(is_valid)
-
-        self.tool_Save.setEnabled(is_valid)
-        self.tool_Undo.setEnabled(False)
-        self.tool_Delete.setEnabled(is_valid)
+        self.update_widget()
 
     def Delete_Callback(self):
         self.label = np.zeros((self.image.shape[0], self.image.shape[1]), dtype=np.uint8)
@@ -484,13 +451,7 @@ class MainWindow(QMainWindow):
         self.update_figure()
 
         # Update Widget
-        self.menu_Save.setEnabled(False)
-        self.menu_Undo.setEnabled(False)
-        self.menu_Delete.setEnabled(False)
-
-        self.tool_Save.setEnabled(False)
-        self.tool_Undo.setEnabled(False)
-        self.tool_Delete.setEnabled(False)
+        self.update_widget()
 
     def ZoomIn_Callback(self):
         mask = [self.scale < scale for scale in self.scale_list]
@@ -503,8 +464,7 @@ class MainWindow(QMainWindow):
         self.update_figure()
 
         # Update Widget
-        self.tool_ZoomIn.setEnabled(self.scale < self.scale_list[-1])
-        self.tool_ZoomOut.setEnabled(self.scale > self.scale_list[0])
+        self.update_widget()
 
     def ZoomOut_Callback(self):
         mask = [self.scale <= scale for scale in self.scale_list]
@@ -517,8 +477,7 @@ class MainWindow(QMainWindow):
         self.update_figure()
 
         # Update Widget
-        self.tool_ZoomIn.setEnabled(self.scale < self.scale_list[-1])
-        self.tool_ZoomOut.setEnabled(self.scale > self.scale_list[0])
+        self.update_widget()
 
     def Tutorial_Callback(self):
         QMessageBox.information(self,
@@ -539,7 +498,7 @@ class MainWindow(QMainWindow):
                         '\tRight button click: Select a seed',
                         QMessageBox.Close)
 
-    def Value_Callback(self, action):
+    def Value_Callback(self):
         value = self.seed['Value']
         if value is None:
             init_color = QColor(128, 128, 128)
@@ -551,12 +510,10 @@ class MainWindow(QMainWindow):
         self.seed['Position'] = None
 
         # Update UI
-        self.update_seedinfo()
+        self.update_seed_info()
 
         # Update Widget
-        self.menu_Run.setEnabled(True)
-        self.tool_Run.setEnabled(True)
-
+        self.update_widget()
 
     def EditValue_Callback(self):
         text = self.edit_Value.text().strip('[').strip(']').split(',')
@@ -567,11 +524,10 @@ class MainWindow(QMainWindow):
         self.seed['Position'] = None
 
         # Update UI
-        self.update_seedinfo()
+        self.update_seed_info()
 
         # Update Widget
-        self.menu_Run.setEnabled(True)
-        self.tool_Run.setEnabled(True)
+        self.update_widget()
 
     def EditThreshold_Callback(self):
         text = self.edit_Threshold.text().strip('[').strip(']').split(',')
@@ -581,7 +537,7 @@ class MainWindow(QMainWindow):
         self.seed['Threshold'] = threshold
 
         # Update UI
-        self.update_seedinfo()
+        self.update_seed_info()
 
     def horizontalMoveEvent_Callback(self):
         value = self.scrollarea_Image.horizontalScrollBar().value()
@@ -598,7 +554,6 @@ class MainWindow(QMainWindow):
             self.mouse['Value'] = [self.scrollarea_Image.horizontalScrollBar().value(),
                                    self.scrollarea_Image.verticalScrollBar().value()]
             self.setCursor(Qt.OpenHandCursor)
-
 
     def mouseRelease_Callback(self, event):
         if event.button() == Qt.LeftButton:
@@ -619,11 +574,10 @@ class MainWindow(QMainWindow):
             self.seed['Value'] = [value[0], value[1], value[2]]
 
             # Update UI
-            self.update_seedinfo()
+            self.update_seed_info()
 
             # Update Widget
-            self.menu_Run.setEnabled(True)
-            self.tool_Run.setEnabled(True)
+            self.update_widget()
 
     def mouseMove_Callback(self, event):
         if self.mouse['LeftButtonPress']:
@@ -671,8 +625,7 @@ class MainWindow(QMainWindow):
         self.update_figure()
 
         # Update Widget
-        self.tool_ZoomIn.setEnabled(self.scale < self.scale_list[-1])
-        self.tool_ZoomOut.setEnabled(self.scale > self.scale_list[0])
+        self.update_widget()
 
 
 if __name__ == "__main__":
@@ -682,4 +635,6 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
     window = MainWindow(cfg)
+    window.show()
+    window.Open_Callback()
     sys.exit(app.exec_())
