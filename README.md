@@ -4,7 +4,7 @@ This repository is the region growing algorithm implemented with PyQt5.
 
 ## UI
 
-<img src="https://raw.githubusercontent.com/lh9171338/Region-Growing/main/image/UI.png"/>
+<img src="image/UI.png"/>
 
 ## Requirements
 
